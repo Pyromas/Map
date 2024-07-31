@@ -1,66 +1,94 @@
-import telebot
-from config import TOKEN, DATABASE
-from logic import create_graph, load_cities
-import os
+import matplotlib.pyplot as plt
 
-bot = telebot.TeleBot('7485846314:AAHPXsfsONnAWPpXJq3NGXEvqqydpHpSijs')
-all_cities = load_cities()
+def create_map(cities):
+    """
+    Создает карту с городами.
+    
+    Parameters:
+    cities (list of tuple): Список городов в формате [(name, (latitude, longitude)), ...]
+    """
+    fig, ax = plt.subplots(figsize=(10, 10))
 
-class DB_Map:
-   
-    def __init__(self, db_path):
-        self.db_path = db_path
+    # Координаты для всех городов
+    lats = [city[1][0] for city in cities]
+    longs = [city[1][1] for city in cities]
 
-    def add_city(self, user_id, city_name):
-        
-        return city_name in [city['name'].lower() for city in all_cities]
+    ax.scatter(longs, lats, color='skyblue', s=100)
 
-    def select_cities(self, user_id):
-        
-        return ["London", "Paris"]
+    # Отмечаем города
+    for city in cities:
+        name, (lat, long) = city
+        ax.text(long, lat, name, fontsize=12, ha='right')
 
-manager = DB_Map(DATABASE)
+    return fig, ax
 
-@bot.message_handler(commands=['start'])
-def handle_start(message):
-    bot.send_message(message.chat.id, "Привет! Я бот, который может показывать города на карте. Напиши /help для списка команд.")
+def draw_map(fig, ax):
+    """
+    Рисует карту с городами.
+    
+    Parameters:
+    fig, ax: Объекты matplotlib.figure.Figure и matplotlib.axes.Axes
+    """
+    plt.show()
+Шаг 2: Файл bot.py
+bot.py
+python
+Копировать код
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+from logic import create_map
+import io
+from PIL import Image
 
-@bot.message_handler(commands=['help'])
-def handle_help(message):
-    bot.send_message(message.chat.id, "Доступные команды:\n/show_city <город> - Показать город на карте\n/remember_city <город> - Запомнить город\n/show_my_cities - Показать мои города на карте")
+# Список городов (название, (широта, долгота))
+cities = [
+    ("Moscow", (55.7558, 37.6173)),
+    ("Saint Petersburg", (59.9343, 30.3351)),
+    ("Novosibirsk", (55.0084, 82.9357)),
+    # Добавьте остальные города
+]
 
-@bot.message_handler(commands=['show_city'])
-def handle_show_city(message):
-    city_name = ' '.join(message.text.split()[1:])
-    user_id = message.chat.id
-    file_path = f'{user_id}_city.png'
-    create_graph(file_path, [city_name])  
-    with open(file_path, 'rb') as map_file:  
-        bot.send_photo(user_id, map_file)
-    os.remove(file_path) 
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text('Привет! Я бот для отображения городов на карте.')
 
-@bot.message_handler(commands=['remember_city'])
-def handle_remember_city(message):
-    user_id = message.chat.id
-    city_name = ' '.join(message.text.split()[1:])
-    if manager.add_city(user_id, city_name):
-        bot.send_message(message.chat.id, f'Город {city_name} успешно сохранен!')
-    else:
-        bot.send_message(message.chat.id, 'Такого города я не знаю. Убедись, что он написан на английском!')
+def draw_all_cities(update: Update, context: CallbackContext) -> None:
+    fig, ax = create_map(cities)
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close(fig)
 
-@bot.message_handler(commands=['show_my_cities'])
-def handle_show_visited_cities(message):
-    user_id = message.chat.id
-    cities = manager.select_cities(user_id)
-    if cities:
-        file_path = f'{user_id}_my_cities.png'
-        create_graph(file_path, cities)  
-        with open(file_path, 'rb') as map_file: 
-            bot.send_photo(user_id, map_file)
-        os.remove(file_path) 
-    else:
-        bot.send_message(message.chat.id, 'У вас еще нет сохраненных городов.')
+    update.message.reply_photo(photo=buf)
 
-if __name__ == "__main__":
-    bot.polling()
+def draw_city(update: Update, context: CallbackContext) -> None:
+    city_name = ' '.join(context.args)
+    city = next((city for city in cities if city[0].lower() == city_name.lower()), None)
+    
+    if not city:
+        update.message.reply_text(f'Город {city_name} не найден.')
+        return
+    
+    fig, ax = create_map([city])
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close(fig)
 
+    update.message.reply_photo(photo=buf)
+
+def main():
+    updater = Updater("YOUR_TOKEN", use_context=True)
+    
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("draw_all_cities", draw_all_cities))
+    dp.add_handler(CommandHandler("draw_city", draw_city))
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
